@@ -349,12 +349,18 @@ class LandslideTileDataset(Dataset[dict[str, Any]]):
         task_type: str = "segmentation",
         manifest_path: str | Path | None = None,
         data_root: str | Path | None = None,
+        augment_flip: bool = False,
+        augment_rotate: bool = False,
+        gaussian_noise_std: float = 0.0,
     ) -> None:
         super().__init__()
         if task_type not in {"segmentation", "classification"}:
             raise ValueError("task_type must be 'segmentation' or 'classification'.")
 
         self.task_type = task_type
+        self.augment_flip = augment_flip
+        self.augment_rotate = augment_rotate
+        self.gaussian_noise_std = gaussian_noise_std
         self.records = load_records(
             task_type=task_type,
             manifest_path=manifest_path,
@@ -363,6 +369,30 @@ class LandslideTileDataset(Dataset[dict[str, Any]]):
 
     def __len__(self) -> int:
         return len(self.records)
+
+    def _apply_augmentations(self, image: Tensor, target: Tensor) -> tuple[Tensor, Tensor]:
+        if self.augment_flip:
+            if torch.rand(1).item() < 0.5:
+                image = torch.flip(image, dims=(-1,))
+                if target.ndim == 3:
+                    target = torch.flip(target, dims=(-1,))
+            if torch.rand(1).item() < 0.5:
+                image = torch.flip(image, dims=(-2,))
+                if target.ndim == 3:
+                    target = torch.flip(target, dims=(-2,))
+
+        if self.augment_rotate:
+            rotations = int(torch.randint(0, 4, (1,)).item())
+            if rotations:
+                image = torch.rot90(image, k=rotations, dims=(-2, -1))
+                if target.ndim == 3:
+                    target = torch.rot90(target, k=rotations, dims=(-2, -1))
+
+        if self.gaussian_noise_std > 0.0:
+            noise = torch.randn_like(image) * self.gaussian_noise_std
+            image = image + noise
+
+        return image, target
 
     def __getitem__(self, index: int) -> dict[str, Any]:
         record = self.records[index]
@@ -393,6 +423,8 @@ class LandslideTileDataset(Dataset[dict[str, Any]]):
                     f"Sample {record.sample_id} requires a scalar 'label' for classification."
                 )
             target = torch.tensor(record.label, dtype=torch.float32)
+
+        image, target = self._apply_augmentations(image, target)
 
         return {
             "id": record.sample_id,

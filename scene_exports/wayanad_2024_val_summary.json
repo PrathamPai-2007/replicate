@@ -1,0 +1,12 @@
+{
+  "checkpoint": "C:\\Users\\prath\\OneDrive\\Desktop\\Replicate\\checkpoints\\landslide_seg_dense_w8.pt",
+  "event_id": "wayanad_2024_val",
+  "stitched_samples": 24,
+  "threshold": 0.5,
+  "scene_height": 1111,
+  "scene_width": 1313,
+  "probability_tif": "C:\\Users\\prath\\OneDrive\\Desktop\\Replicate\\scene_exports\\wayanad_2024_val_probability.tif",
+  "binary_tif": "C:\\Users\\prath\\OneDrive\\Desktop\\Replicate\\scene_exports\\wayanad_2024_val_binary.tif",
+  "coverage_tif": "C:\\Users\\prath\\OneDrive\\Desktop\\Replicate\\scene_exports\\wayanad_2024_val_coverage.tif",
+  "target_tif": "C:\\Users\\prath\\OneDrive\\Desktop\\Replicate\\scene_exports\\wayanad_2024_val_target.tif"
+}

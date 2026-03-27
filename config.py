@@ -16,6 +16,9 @@ class DataConfig:
     batch_size: int = 4
     num_workers: int = 0
     pin_memory: bool = False
+    augment_flip: bool = False
+    augment_rotate: bool = False
+    gaussian_noise_std: float = 0.0
 
 
 @dataclass
@@ -40,3 +43,5 @@ class TrainConfig:
     log_every: int = 10
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     output_path: str = "checkpoint.pt"
+    report_dir: str = "reports/runs"
+    run_name: str | None = None

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict
+from datetime import datetime
+import json
 from pathlib import Path
 
 import torch
@@ -43,9 +45,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--shared-experts", type=int, default=2)
     parser.add_argument("--top-k", type=int, default=2)
     parser.add_argument("--dropout", type=float, default=0.0)
+    parser.add_argument("--augment-flip", action="store_true")
+    parser.add_argument("--augment-rotate", action="store_true")
+    parser.add_argument("--gaussian-noise-std", type=float, default=0.0)
     parser.add_argument("--log-every", type=int, default=10)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--output", default="checkpoint.pt")
+    parser.add_argument("--report-dir", default="reports/runs")
+    parser.add_argument("--run-name")
     return parser.parse_args()
 
 
@@ -54,6 +61,9 @@ def build_dataloaders(data_config: DataConfig) -> tuple[DataLoader, DataLoader |
         task_type=data_config.task_type,
         manifest_path=data_config.train_manifest,
         data_root=data_config.train_root,
+        augment_flip=data_config.augment_flip,
+        augment_rotate=data_config.augment_rotate,
+        gaussian_noise_std=data_config.gaussian_noise_std,
     )
     train_loader = DataLoader(
         train_dataset,
@@ -120,6 +130,52 @@ def validate_dataset_channels(
             f"Validation data has {val_channels} channels, but --in-channels is {expected_in_channels}. "
             "Rebuild train/val tiles with the same modalites in both splits."
         )
+
+
+def initialize_reporting(
+    *,
+    data_config: DataConfig,
+    model_config: ModelConfig,
+    train_config: TrainConfig,
+) -> tuple[str, Path]:
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_name = train_config.run_name or f"{Path(train_config.output_path).stem}_{timestamp}"
+    run_dir = Path(train_config.report_dir) / run_name
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    config_payload = {
+        "data_config": asdict(data_config),
+        "model_config": asdict(model_config),
+        "train_config": asdict(train_config),
+        "timestamp": timestamp,
+    }
+    (run_dir / "config.json").write_text(json.dumps(config_payload, indent=2), encoding="utf-8")
+    return run_name, run_dir
+
+
+def append_epoch_log(
+    *,
+    run_dir: Path,
+    epoch: int,
+    train_loss: float,
+    val_loss: float | None,
+    val_metric: float | None,
+    metric_name: str,
+    best_metric: float | None,
+) -> None:
+    payload = {
+        "epoch": epoch,
+        "train_loss": train_loss,
+        "val_loss": val_loss,
+        metric_name: val_metric,
+        "best_metric": best_metric,
+    }
+    history_path = run_dir / "history.jsonl"
+    with history_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload) + "\n")
+
+    latest_path = run_dir / "latest.json"
+    latest_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def compute_segmentation_iou(logits: Tensor, targets: Tensor, eps: float = 1e-6) -> float:
@@ -213,6 +269,9 @@ def main() -> None:
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         pin_memory=args.device.startswith("cuda"),
+        augment_flip=args.augment_flip,
+        augment_rotate=args.augment_rotate,
+        gaussian_noise_std=args.gaussian_noise_std,
     )
     model_config = ModelConfig(
         in_channels=resolved_in_channels,
@@ -232,7 +291,16 @@ def main() -> None:
         log_every=args.log_every,
         device=args.device,
         output_path=args.output,
+        report_dir=args.report_dir,
+        run_name=args.run_name,
     )
+    run_name, run_dir = initialize_reporting(
+        data_config=data_config,
+        model_config=model_config,
+        train_config=train_config,
+    )
+    print(f"run_name={run_name}")
+    print(f"run_dir={run_dir}")
 
     train_loader, val_loader = build_dataloaders(data_config)
     validate_dataset_channels(
@@ -279,6 +347,15 @@ def main() -> None:
         print(f"epoch={epoch} train_loss={train_loss:.4f}")
 
         if val_loader is None:
+            append_epoch_log(
+                run_dir=run_dir,
+                epoch=epoch,
+                train_loss=train_loss,
+                val_loss=None,
+                val_metric=None,
+                metric_name=metric_name,
+                best_metric=best_metric,
+            )
             continue
 
         val_loss, val_metric = evaluate(
@@ -306,10 +383,31 @@ def main() -> None:
                     "data_config": asdict(data_config),
                     "train_config": asdict(train_config),
                     "metric_name": metric_name,
+                    "run_name": run_name,
+                    "run_dir": str(run_dir.resolve()),
                 },
                 output_path,
             )
             print(f"saved_checkpoint={output_path}")
+        best_metric = val_metric if is_best else best_metric
+        append_epoch_log(
+            run_dir=run_dir,
+            epoch=epoch,
+            train_loss=train_loss,
+            val_loss=val_loss,
+            val_metric=val_metric,
+            metric_name=metric_name,
+            best_metric=best_metric,
+        )
+
+    summary_payload = {
+        "run_name": run_name,
+        "checkpoint_path": str(Path(train_config.output_path).resolve()),
+        "metric_name": metric_name,
+        "best_metric": best_metric,
+        "epochs": train_config.epochs,
+    }
+    (run_dir / "summary.json").write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":

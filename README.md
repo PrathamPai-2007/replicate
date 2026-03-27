@@ -41,8 +41,11 @@ What is already working:
 - multimodal preprocessing from Sentinel-1, Sentinel-2, DEM, rainfall, soil moisture, and vector/raster labels
 - support for multiple label files merged with `union` or `intersection`
 - segmentation training with class-imbalance handling
+- lightweight training augmentations for flips, rotations, and Gaussian noise
+- run-level experiment tracking with saved configs and epoch logs
 - dataset QC summaries
 - checkpoint-based prediction review with probability maps and visualization PNGs
+- stitched scene export to GeoTIFF and NumPy outputs
 - safe cleanup of processed datasets between experiments
 
 What is not yet implemented:
@@ -405,6 +408,8 @@ python train.py `
   --shared-experts 2 `
   --top-k 2 `
   --positive-class-weight 8 `
+  --augment-flip `
+  --augment-rotate `
   --output checkpoints/landslide_seg_dense_w8.pt
 ```
 
@@ -415,6 +420,7 @@ python train.py `
 - segmentation uses IoU for validation
 - classification uses accuracy
 - checkpoint files now store model/data/train config for reproducible inference
+- each run writes configs and epoch logs under `reports/runs/`
 
 ### Helpful Training Flags
 
@@ -465,6 +471,54 @@ The summary JSON includes:
 - `threshold`
 - `mean_iou` for segmentation
 - checkpoint path
+
+## Experiment Tracking
+
+`train.py` now writes run metadata automatically under `reports/runs/`.
+
+Example:
+
+```powershell
+python train.py `
+  --train-root data_dense/train `
+  --val-root data_dense/val `
+  --task-type segmentation `
+  --in-channels 17 `
+  --positive-class-weight 8 `
+  --augment-flip `
+  --augment-rotate `
+  --run-name dense_w8_augmented `
+  --output checkpoints/landslide_seg_dense_w8_aug.pt
+```
+
+This creates a run folder with:
+
+- `config.json`
+- `history.jsonl`
+- `latest.json`
+- `summary.json`
+
+## Full-Scene Stitched Export
+
+After training, you can stitch tile predictions back into a scene-sized raster:
+
+```powershell
+python stitch_scene.py `
+  --data-root data_dense/val `
+  --checkpoint checkpoints/landslide_seg_dense_w8.pt `
+  --event-id wayanad_2024_val `
+  --output-root scene_exports `
+  --threshold 0.5
+```
+
+Outputs include:
+
+- scene probability GeoTIFF
+- binary prediction GeoTIFF
+- coverage GeoTIFF
+- stitched target GeoTIFF
+- NumPy exports
+- summary JSON
 
 ## Cleanup With `clear_processed_data.py`
 
