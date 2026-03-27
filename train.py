@@ -18,8 +18,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Train a first-pass landslide model built around the SSMoE block."
     )
-    parser.add_argument("--train-manifest", required=True)
-    parser.add_argument("--val-manifest")
+    train_source = parser.add_mutually_exclusive_group(required=True)
+    train_source.add_argument("--train-manifest")
+    train_source.add_argument("--train-root")
+    val_source = parser.add_mutually_exclusive_group()
+    val_source.add_argument("--val-manifest")
+    val_source.add_argument("--val-root")
     parser.add_argument("--task-type", choices=["segmentation", "classification"], default="segmentation")
     parser.add_argument("--in-channels", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=4)
@@ -42,8 +46,9 @@ def parse_args() -> argparse.Namespace:
 
 def build_dataloaders(data_config: DataConfig) -> tuple[DataLoader, DataLoader | None]:
     train_dataset = LandslideTileDataset(
-        manifest_path=data_config.train_manifest,
         task_type=data_config.task_type,
+        manifest_path=data_config.train_manifest,
+        data_root=data_config.train_root,
     )
     train_loader = DataLoader(
         train_dataset,
@@ -54,11 +59,13 @@ def build_dataloaders(data_config: DataConfig) -> tuple[DataLoader, DataLoader |
     )
 
     if not data_config.val_manifest:
-        return train_loader, None
+        if not data_config.val_root:
+            return train_loader, None
 
     val_dataset = LandslideTileDataset(
-        manifest_path=data_config.val_manifest,
         task_type=data_config.task_type,
+        manifest_path=data_config.val_manifest,
+        data_root=data_config.val_root,
     )
     val_loader = DataLoader(
         val_dataset,
@@ -158,7 +165,9 @@ def main() -> None:
 
     data_config = DataConfig(
         train_manifest=args.train_manifest,
+        train_root=args.train_root,
         val_manifest=args.val_manifest,
+        val_root=args.val_root,
         task_type=args.task_type,
         in_channels=args.in_channels,
         batch_size=args.batch_size,

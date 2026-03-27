@@ -11,10 +11,11 @@ representations for landslide prediction.
 ## Current Status
 
 - `satellite_ssmoe.py` contains the paper-aligned specific/shared MoE routing block adapted to image tokens.
-- `dataset.py` loads preprocessed multimodal tiles from a JSONL manifest.
+- `dataset.py` loads preprocessed multimodal tiles either from a JSONL manifest or directly from a simple folder layout.
 - `model.py` wraps the SSMoE block in a landslide segmentation or tile-classification model.
 - `losses.py` contains binary losses for segmentation and classification.
 - `train.py` provides a first supervised training loop.
+- `prepare_manifest.py` can generate a manifest automatically from folders.
 
 This is the first working scaffold. The paper-style masked self-supervised pretraining stage is
 still a next step.
@@ -54,12 +55,53 @@ Supported tensor formats:
 - `.npy`
 - `.npz`
 
+## Easier Folder Layout
+
+If you do not want to hand-write manifests, use this layout:
+
+```text
+data/
+  train/
+    images/
+      wayanad_2024/
+        tile_0001_image.pt
+        tile_0002_image.pt
+    targets/
+      wayanad_2024/
+        tile_0001_mask.pt
+        tile_0002_mask.pt
+  val/
+    images/
+      puthumala_2019/
+        tile_0001_image.pt
+    targets/
+      puthumala_2019/
+        tile_0001_mask.pt
+```
+
+The loader matches files by name after removing common suffixes such as `_image`, `_img`, `_mask`, and `_target`.
+Nested folders are allowed. Their relative path becomes the `event_id`, so `images/wayanad_2024/...` maps to `event_id = "wayanad_2024"`.
+You can use either `targets/` or `masks/` for segmentation labels.
+
 ## Training
 
 Install PyTorch in your environment first, then run:
 
 ```powershell
 python train.py --train-manifest data/train.jsonl --val-manifest data/val.jsonl --task-type segmentation --in-channels 10
+```
+
+Or train directly from folders:
+
+```powershell
+python train.py --train-root data/train --val-root data/val --task-type segmentation --in-channels 14
+```
+
+If you want manifests for inspection or reuse:
+
+```powershell
+python prepare_manifest.py --data-root data/train --output data/train.jsonl --task-type segmentation
+python prepare_manifest.py --data-root data/val --output data/val.jsonl --task-type segmentation
 ```
 
 Useful flags:

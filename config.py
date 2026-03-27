@@ -7,8 +7,10 @@ import torch
 
 @dataclass
 class DataConfig:
-    train_manifest: str
+    train_manifest: str | None = None
+    train_root: str | None = None
     val_manifest: str | None = None
+    val_root: str | None = None
     task_type: str = "segmentation"
     in_channels: int = 10
     batch_size: int = 4
