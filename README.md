@@ -4,7 +4,7 @@ This repository adapts the EEGMoE paper,
 `EEGMoE: A Domain-Decoupled Mixture-of-Experts Model for Self-Supervised EEG Representation Learning`,
 to landslide mapping from multimodal geospatial data.
 
-The current repo is a working competition baseline for:
+The current repo is a working baseline for:
 
 - atlas-derived weak-label segmentation
 - multimodal raster preprocessing
@@ -95,8 +95,6 @@ Core implementation:
   - input: multimodal tile tensor
   - target: scalar `0` or `1`
   - output: one logit per tile
-
-The current competition workflow is centered on `segmentation`.
 
 ## Environment Setup
 
