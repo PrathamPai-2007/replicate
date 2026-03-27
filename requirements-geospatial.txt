@@ -1,7 +1,0 @@
-rasterio
-xarray
-netCDF4
-geopandas
-fiona
-shapely
-pyproj

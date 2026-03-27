@@ -17,6 +17,7 @@ representations for landslide prediction.
 - `train.py` provides a first supervised training loop.
 - `prepare_manifest.py` can generate a manifest automatically from folders.
 - `prepare_tiles.py` converts raw scene folders into processed tensor tiles for training.
+- `requirements.txt` lists the dependencies judges can install directly.
 
 This is the first working scaffold. The paper-style masked self-supervised pretraining stage is
 still a next step.
@@ -74,13 +75,13 @@ data/
 Each line in the manifest is a JSON object. Example segmentation record:
 
 ```json
-{"id":"wayanad_tile_0001","image":"data/tiles/wayanad_tile_0001_image.pt","target":"data/tiles/wayanad_tile_0001_mask.pt","event_id":"wayanad_2024"}
+{"id":"wayanad_tile_0001","image":"data/tiles/wayanad_tile_0001_image.npy","target":"data/tiles/wayanad_tile_0001_mask.npy","event_id":"wayanad_2024"}
 ```
 
 Example classification record:
 
 ```json
-{"id":"puthumala_tile_0007","image":"data/tiles/puthumala_tile_0007_image.pt","label":1.0,"event_id":"puthumala_2019"}
+{"id":"puthumala_tile_0007","image":"data/tiles/puthumala_tile_0007_image.npy","label":1.0,"event_id":"puthumala_2019"}
 ```
 
 Supported tensor formats:
@@ -98,19 +99,19 @@ data/
   train/
     images/
       wayanad_2024/
-        tile_0001_image.pt
-        tile_0002_image.pt
+        tile_0001_image.npy
+        tile_0002_image.npy
     targets/
       wayanad_2024/
-        tile_0001_mask.pt
-        tile_0002_mask.pt
+        tile_0001_mask.npy
+        tile_0002_mask.npy
   val/
     images/
       puthumala_2019/
-        tile_0001_image.pt
+        tile_0001_image.npy
     targets/
       puthumala_2019/
-        tile_0001_mask.pt
+        tile_0001_mask.npy
 ```
 
 The loader matches files by name after removing common suffixes such as `_image`, `_img`, `_mask`, and `_target`.
@@ -128,13 +129,15 @@ You can use either `targets/` or `masks/` for segmentation labels.
 - soil moisture from a `.tif` or `.zip`
 - labels from a raster or vector file you provide
 
-It outputs `.pt` tiles directly into the folder layout that `train.py` already understands.
+It outputs `.npy` or `.pt` tiles directly into the folder layout that `train.py` already understands. The default is `.npy`.
 
-Install preprocessing dependencies first:
+Install dependencies first:
 
 ```powershell
-pip install -r requirements-geospatial.txt
+python -m pip install -r requirements.txt
 ```
+
+This is the simplest judge-friendly setup: one requirements file and regular `python` commands.
 
 Example command:
 
@@ -149,18 +152,19 @@ python prepare_tiles.py `
   --rainfall-path datasets/2024-12-11/Rainfall Data/kerala_rainfall_data.nc `
   --soil-moisture-path datasets/2024-12-11/Soil_moisture/Soil_Mositure.zip `
   --tile-size 64 `
-  --stride 64
+  --stride 64 `
+  --output-format npy
 ```
 
 Important:
 
 - You still need a real landslide label file for training.
 - The current repo does not yet contain a ready-to-use atlas mask.
-- The preprocessing environment needs the extra geospatial packages listed above.
+- The preprocessing step needs the geospatial packages listed in `requirements.txt`.
 
 ## Training
 
-Install PyTorch in your environment first, then run:
+Install the dependencies first, then run:
 
 ```powershell
 python train.py --train-manifest data/train.jsonl --val-manifest data/val.jsonl --task-type segmentation --in-channels 10

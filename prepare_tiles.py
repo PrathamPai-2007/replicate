@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import re
 import zipfile
@@ -10,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import torch
 
 try:
     import rasterio
@@ -111,6 +111,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip tiles whose target mask is completely empty.",
     )
+    parser.add_argument(
+        "--output-format",
+        choices=["npy", "pt"],
+        default="npy",
+        help="Tile storage format. Use 'npy' in the geospatial env and 'pt' only when torch works there.",
+    )
     return parser.parse_args()
 
 
@@ -122,17 +128,17 @@ def _require(condition: bool, message: str) -> None:
 def _require_geospatial_stack(label_path: str | None, rainfall_path: str | None) -> None:
     _require(
         rasterio is not None and Resampling is not None and reproject is not None,
-        "prepare_tiles.py requires rasterio. Install the packages listed in requirements-geospatial.txt.",
+        "prepare_tiles.py requires rasterio. Install the packages listed in requirements.txt.",
     )
     if rainfall_path:
         _require(
             xr is not None and from_bounds is not None,
-            "Rainfall NetCDF preprocessing requires xarray. Install requirements-geospatial.txt.",
+            "Rainfall NetCDF preprocessing requires xarray. Install requirements.txt.",
         )
     if label_path and Path(label_path).suffix.lower() in VECTOR_LABEL_SUFFIXES:
         _require(
             gpd is not None and rasterize is not None,
-            "Vector labels require geopandas and rasterio.features. Install requirements-geospatial.txt.",
+            "Vector labels require geopandas and rasterio.features. Install requirements.txt.",
         )
 
 
@@ -430,6 +436,7 @@ def _save_tiles(
     tile_size: int,
     stride: int,
     skip_empty_targets: bool,
+    output_format: str,
 ) -> int:
     images_dir = output_root / split / "images" / event_id
     targets_dir = output_root / split / "targets" / event_id
@@ -447,9 +454,19 @@ def _save_tiles(
                 continue
 
         sample_id = f"{scene_date}_{top}_{left}"
-        torch.save(torch.from_numpy(image_tile.copy()), images_dir / f"{sample_id}_image.pt")
-        if target_tile is not None:
-            torch.save(torch.from_numpy(target_tile.copy()), targets_dir / f"{sample_id}_mask.pt")
+        if output_format == "npy":
+            np.save(images_dir / f"{sample_id}_image.npy", image_tile.astype(np.float32))
+            if target_tile is not None:
+                np.save(targets_dir / f"{sample_id}_mask.npy", target_tile.astype(np.float32))
+        else:
+            torch = importlib.import_module("torch")
+            if not hasattr(torch, "from_numpy"):
+                raise RuntimeError(
+                    "Torch is not usable in this environment. Run prepare_tiles.py with --output-format npy."
+                )
+            torch.save(torch.from_numpy(image_tile.copy()), images_dir / f"{sample_id}_image.pt")
+            if target_tile is not None:
+                torch.save(torch.from_numpy(target_tile.copy()), targets_dir / f"{sample_id}_mask.pt")
         saved += 1
 
     return saved
@@ -462,6 +479,7 @@ def _write_metadata(
     tile_size: int,
     stride: int,
     saved_tiles: int,
+    output_format: str,
 ) -> None:
     metadata_dir = output_root / assets.split / "metadata"
     metadata_dir.mkdir(parents=True, exist_ok=True)
@@ -470,6 +488,7 @@ def _write_metadata(
     payload["tile_size"] = tile_size
     payload["stride"] = stride
     payload["saved_tiles"] = saved_tiles
+    payload["output_format"] = output_format
 
     metadata_path = metadata_dir / f"{assets.event_id}.json"
     metadata_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -502,6 +521,7 @@ def main() -> None:
         tile_size=args.tile_size,
         stride=args.stride,
         skip_empty_targets=args.skip_empty_targets,
+        output_format=args.output_format,
     )
     _write_metadata(
         assets=assets,
@@ -510,6 +530,7 @@ def main() -> None:
         tile_size=args.tile_size,
         stride=args.stride,
         saved_tiles=saved_tiles,
+        output_format=args.output_format,
     )
 
     print(
