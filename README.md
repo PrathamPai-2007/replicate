@@ -16,6 +16,7 @@ representations for landslide prediction.
 - `losses.py` contains binary losses for segmentation and classification.
 - `train.py` provides a first supervised training loop.
 - `prepare_manifest.py` can generate a manifest automatically from folders.
+- `prepare_tiles.py` converts raw scene folders into processed tensor tiles for training.
 
 This is the first working scaffold. The paper-style masked self-supervised pretraining stage is
 still a next step.
@@ -34,6 +35,39 @@ Examples:
 
 - `10` channels for a Sentinel-2-only experiment
 - `14` channels for `10` optical + `2` SAR + `1` rainfall + `1` soil moisture
+
+## Raw Vs Processed Data
+
+Keep your project organized like this:
+
+```text
+datasets/
+  2024-12-11/
+    DEM/
+    Rainfall Data/
+    Sentinel-1/
+    Sentinel-2/
+    Soil_moisture/
+  2024-12-16/
+    DEM/
+    Sentinel-1/
+    Sentinel-2/
+references/
+  *.pdf
+data/
+  train/
+    images/
+    targets/
+    metadata/
+  val/
+    images/
+    targets/
+    metadata/
+```
+
+- `datasets/` stores untouched raw sources.
+- `references/` stores papers and map PDFs.
+- `data/` stores processed training-ready tensors.
 
 ## Manifest Format
 
@@ -82,6 +116,47 @@ data/
 The loader matches files by name after removing common suffixes such as `_image`, `_img`, `_mask`, and `_target`.
 Nested folders are allowed. Their relative path becomes the `event_id`, so `images/wayanad_2024/...` maps to `event_id = "wayanad_2024"`.
 You can use either `targets/` or `masks/` for segmentation labels.
+
+## Raw Preprocessing
+
+`prepare_tiles.py` is the first-pass raw geospatial converter. It reads:
+
+- Sentinel-2 bands from `Sentinel-2/`
+- Sentinel-1 raster from `Sentinel-1/`
+- DEM raster from `DEM/`
+- rainfall from a NetCDF file
+- soil moisture from a `.tif` or `.zip`
+- labels from a raster or vector file you provide
+
+It outputs `.pt` tiles directly into the folder layout that `train.py` already understands.
+
+Install preprocessing dependencies first:
+
+```powershell
+pip install -r requirements-geospatial.txt
+```
+
+Example command:
+
+```powershell
+python prepare_tiles.py `
+  --scene-root datasets/2024-12-11 `
+  --output-root data `
+  --split train `
+  --event-id wayanad_2024 `
+  --scene-date 2024-07-31 `
+  --label-path path/to/landslide_atlas.tif `
+  --rainfall-path datasets/2024-12-11/Rainfall Data/kerala_rainfall_data.nc `
+  --soil-moisture-path datasets/2024-12-11/Soil_moisture/Soil_Mositure.zip `
+  --tile-size 64 `
+  --stride 64
+```
+
+Important:
+
+- You still need a real landslide label file for training.
+- The current repo does not yet contain a ready-to-use atlas mask.
+- The preprocessing environment needs the extra geospatial packages listed above.
 
 ## Training
 
