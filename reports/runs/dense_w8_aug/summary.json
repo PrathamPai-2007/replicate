@@ -1,0 +1,7 @@
+{
+  "run_name": "dense_w8_aug",
+  "checkpoint_path": "C:\\Users\\prath\\OneDrive\\Desktop\\Replicate\\checkpoints\\landslide_seg_dense_w8_aug.pt",
+  "metric_name": "iou",
+  "best_metric": 0.3252458480621238,
+  "epochs": 20
+}

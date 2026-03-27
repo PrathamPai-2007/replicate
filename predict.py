@@ -34,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", required=True, help="Checkpoint path from train.py.")
     parser.add_argument("--output-root", default="predictions", help="Folder to save outputs.")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--threshold", type=float, default=0.5)
+    parser.add_argument("--threshold", type=float, default=0.6)
     parser.add_argument("--max-visualizations", type=int, default=16)
     parser.add_argument("--task-type", choices=["segmentation", "classification"], default=None)
     parser.add_argument("--in-channels", type=int, default=None)

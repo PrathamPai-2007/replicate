@@ -1,0 +1,39 @@
+{
+  "data_config": {
+    "train_manifest": null,
+    "train_root": "data_dense/train",
+    "val_manifest": null,
+    "val_root": "data_dense/val",
+    "task_type": "segmentation",
+    "in_channels": 17,
+    "batch_size": 2,
+    "num_workers": 0,
+    "pin_memory": false,
+    "augment_flip": true,
+    "augment_rotate": true,
+    "gaussian_noise_std": 0.02
+  },
+  "model_config": {
+    "in_channels": 17,
+    "task_type": "segmentation",
+    "dim": 128,
+    "patch_size": 8,
+    "specific_experts": 4,
+    "shared_experts": 2,
+    "top_k": 2,
+    "expert_hidden_dim": null,
+    "dropout": 0.0
+  },
+  "train_config": {
+    "epochs": 20,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.0001,
+    "positive_class_weight": 8.0,
+    "log_every": 10,
+    "device": "cpu",
+    "output_path": "checkpoints\\landslide_seg_dense_w8_aug.pt",
+    "report_dir": "reports/runs",
+    "run_name": "dense_w8_aug"
+  },
+  "timestamp": "20260327_172918"
+}

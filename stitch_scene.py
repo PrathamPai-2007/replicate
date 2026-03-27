@@ -26,7 +26,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--event-id", required=True, help="Event id to stitch, for example wayanad_2024_val.")
     parser.add_argument("--output-root", default="scene_exports")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--threshold", type=float, default=0.5)
+    parser.add_argument("--threshold", type=float, default=0.6)
     parser.add_argument("--in-channels", type=int, default=None)
     parser.add_argument("--task-type", choices=["segmentation", "classification"], default=None)
     parser.add_argument("--dim", type=int, default=ModelConfig.dim)

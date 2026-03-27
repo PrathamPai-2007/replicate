@@ -1,0 +1,7 @@
+{
+  "run_name": "dense_s24_w10",
+  "checkpoint_path": "C:\\Users\\prath\\OneDrive\\Desktop\\Replicate\\checkpoints\\landslide_seg_dense_s24_w10.pt",
+  "metric_name": "iou",
+  "best_metric": 0.3932335072507461,
+  "epochs": 30
+}

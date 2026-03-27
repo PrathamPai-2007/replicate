@@ -11,6 +11,8 @@ The current repo is a working baseline for:
 - supervised training with an SSMoE-style backbone
 - tile-wise inference and visualization review
 
+To test the model, run python test_all_samples.py
+
 The main workflow is:
 
 1. keep raw GIS assets under `datasets/`
@@ -446,7 +448,7 @@ python predict.py `
   --data-root data_dense/val `
   --checkpoint checkpoints/landslide_seg_dense_w8.pt `
   --output-root predictions/dense_val_review `
-  --threshold 0.5 `
+  --threshold 0.6 `
   --max-visualizations 8
 ```
 
@@ -508,7 +510,7 @@ python stitch_scene.py `
   --checkpoint checkpoints/landslide_seg_dense_w8.pt `
   --event-id wayanad_2024_val `
   --output-root scene_exports `
-  --threshold 0.5
+  --threshold 0.6
 ```
 
 Outputs include:

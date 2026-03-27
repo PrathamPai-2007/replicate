@@ -1,0 +1,8 @@
+{
+  "checkpoint": "C:\\Users\\prath\\OneDrive\\Desktop\\Replicate\\checkpoints\\landslide_seg_dense_w8.pt",
+  "task_type": "segmentation",
+  "threshold": 0.7,
+  "sample_count": 24,
+  "visualizations_saved": 8,
+  "mean_iou": 0.4237824093784756
+}
