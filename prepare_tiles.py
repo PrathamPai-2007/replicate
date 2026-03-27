@@ -61,7 +61,8 @@ class SceneAssets:
     dem_path: str | None
     rainfall_path: str | None
     soil_moisture_path: str | None
-    label_path: str | None
+    label_paths: list[str]
+    label_merge_mode: str
 
 
 def parse_args() -> argparse.Namespace:
@@ -78,7 +79,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--label-path",
-        help="Raster or vector landslide label path. Required for supervised training tiles.",
+        action="append",
+        default=None,
+        help="Raster or vector landslide label path. Repeat the flag to combine multiple layers.",
+    )
+    parser.add_argument(
+        "--label-merge-mode",
+        choices=["union", "intersection"],
+        default="union",
+        help="How to combine multiple label layers. 'union' keeps any positive pixel, 'intersection' keeps only overlap.",
     )
     parser.add_argument(
         "--rainfall-path",
@@ -125,7 +134,7 @@ def _require(condition: bool, message: str) -> None:
         raise RuntimeError(message)
 
 
-def _require_geospatial_stack(label_path: str | None, rainfall_path: str | None) -> None:
+def _require_geospatial_stack(label_paths: list[str], rainfall_path: str | None) -> None:
     _require(
         rasterio is not None and Resampling is not None and reproject is not None,
         "prepare_tiles.py requires rasterio. Install the packages listed in requirements.txt.",
@@ -135,7 +144,7 @@ def _require_geospatial_stack(label_path: str | None, rainfall_path: str | None)
             xr is not None and from_bounds is not None,
             "Rainfall NetCDF preprocessing requires xarray. Install requirements.txt.",
         )
-    if label_path and Path(label_path).suffix.lower() in VECTOR_LABEL_SUFFIXES:
+    if any(Path(label_path).suffix.lower() in VECTOR_LABEL_SUFFIXES for label_path in label_paths):
         _require(
             gpd is not None and rasterize is not None,
             "Vector labels require geopandas and rasterio.features. Install requirements.txt.",
@@ -205,7 +214,7 @@ def _discover_scene_assets(args: argparse.Namespace) -> tuple[SceneAssets, list[
     soil_moisture_path = Path(args.soil_moisture_path) if args.soil_moisture_path else _find_first_file(
         scene_root / "Soil_moisture", (".zip", ".tif", ".tiff")
     )
-    label_path = Path(args.label_path) if args.label_path else None
+    label_paths = [str(Path(path).resolve()) for path in args.label_path] if args.label_path else []
 
     assets = SceneAssets(
         scene_root=str(scene_root.resolve()),
@@ -218,7 +227,8 @@ def _discover_scene_assets(args: argparse.Namespace) -> tuple[SceneAssets, list[
         dem_path=str(dem_path.resolve()) if dem_path else None,
         rainfall_path=str(rainfall_path.resolve()) if rainfall_path else None,
         soil_moisture_path=str(soil_moisture_path.resolve()) if soil_moisture_path else None,
-        label_path=str(label_path.resolve()) if label_path else None,
+        label_paths=label_paths,
+        label_merge_mode=args.label_merge_mode,
     )
     return assets, s2_paths
 
@@ -373,6 +383,23 @@ def _load_label(path: Path, reference: ReferenceGrid) -> np.ndarray:
     raise ValueError(f"Unsupported label format: {path.suffix}")
 
 
+def _load_labels(paths: list[str], reference: ReferenceGrid, merge_mode: str) -> np.ndarray | None:
+    if not paths:
+        return None
+
+    masks = [_load_label(Path(path), reference) for path in paths]
+    combined = masks[0].copy()
+    for mask in masks[1:]:
+        if merge_mode == "union":
+            combined = np.maximum(combined, mask)
+        elif merge_mode == "intersection":
+            combined = np.minimum(combined, mask)
+        else:
+            raise ValueError(f"Unsupported label_merge_mode: {merge_mode}")
+
+    return combined.astype(np.float32)
+
+
 def _stack_modalities(assets: SceneAssets, s2_paths: list[Path], reference: ReferenceGrid, cache_dir: Path) -> tuple[np.ndarray, list[str]]:
     channel_arrays: list[np.ndarray] = []
     channel_names: list[str] = []
@@ -497,7 +524,7 @@ def _write_metadata(
 def main() -> None:
     args = parse_args()
     assets, s2_paths = _discover_scene_assets(args)
-    _require_geospatial_stack(assets.label_path, assets.rainfall_path)
+    _require_geospatial_stack(assets.label_paths, assets.rainfall_path)
 
     reference = _reference_grid_from_raster(s2_paths[0])
     output_root = Path(args.output_root)
@@ -509,7 +536,11 @@ def main() -> None:
         reference=reference,
         cache_dir=cache_dir,
     )
-    label_mask = _load_label(Path(assets.label_path), reference) if assets.label_path else None
+    label_mask = _load_labels(
+        assets.label_paths,
+        reference,
+        merge_mode=assets.label_merge_mode,
+    )
 
     saved_tiles = _save_tiles(
         image_stack=image_stack,

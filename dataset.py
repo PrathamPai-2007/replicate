@@ -86,6 +86,43 @@ def _load_tensor(path: str | Path) -> Tensor:
     raise ValueError(f"Unsupported tensor file format: {path.suffix}")
 
 
+def infer_in_channels_from_root(data_root: str | Path) -> int:
+    root = Path(data_root)
+    images_dir = root / "images"
+    metadata_dir = root / "metadata"
+
+    if metadata_dir.exists():
+        metadata_files = sorted(metadata_dir.glob("*.json"))
+        channel_counts: set[int] = set()
+        for metadata_path in metadata_files:
+            payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+            channel_names = payload.get("channel_names")
+            if isinstance(channel_names, list) and channel_names:
+                channel_counts.add(len(channel_names))
+
+        if len(channel_counts) == 1:
+            return next(iter(channel_counts))
+        if len(channel_counts) > 1:
+            raise ValueError(
+                f"Found inconsistent channel counts in {metadata_dir}: {sorted(channel_counts)}."
+            )
+
+    if not images_dir.exists():
+        raise ValueError(f"Expected images directory at {images_dir}.")
+
+    image_files = _iter_tensor_files(images_dir)
+    if not image_files:
+        raise ValueError(f"No image tensors found under {images_dir}.")
+
+    sample = _load_tensor(image_files[0]).float()
+    if sample.ndim != 3:
+        raise ValueError(
+            f"Expected image tensor [channels, height, width], got {tuple(sample.shape)} "
+            f"for sample {image_files[0]}."
+        )
+    return int(sample.shape[0])
+
+
 def discover_segmentation_records(data_root: str | Path) -> list[SampleRecord]:
     root = Path(data_root)
     images_dir = root / "images"
@@ -96,7 +133,17 @@ def discover_segmentation_records(data_root: str | Path) -> list[SampleRecord]:
     if not images_dir.exists():
         raise ValueError(f"Expected images directory at {images_dir}.")
     if not targets_dir.exists():
-        raise ValueError(f"Expected targets/ or masks/ directory under {root}.")
+        inferred_channels = infer_in_channels_from_root(root)
+        metadata_dir = root / "metadata"
+        label_hint = "Re-run prepare_tiles.py with --label-path <mask_or_polygon>"
+        if metadata_dir.exists():
+            label_hint = (
+                f"{label_hint} so it writes {root / 'targets'}\\<event_id>\\*_mask.* files."
+            )
+        raise ValueError(
+            f"Expected targets/ or masks/ directory under {root}. "
+            f"Found image tiles with inferred in_channels={inferred_channels}. {label_hint}"
+        )
 
     image_files = _iter_tensor_files(images_dir)
     target_files = _iter_tensor_files(targets_dir)

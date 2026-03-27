@@ -35,7 +35,7 @@
   "dem_path": "C:\\Users\\prath\\OneDrive\\Desktop\\Replicate\\datasets\\2024-12-11\\DEM\\Copernicus_DEM_30m.tif",
   "rainfall_path": "C:\\Users\\prath\\OneDrive\\Desktop\\Replicate\\datasets\\2024-12-11\\Rainfall Data\\kerala_rainfall_data.nc",
   "soil_moisture_path": "C:\\Users\\prath\\OneDrive\\Desktop\\Replicate\\datasets\\2024-12-11\\Soil_moisture\\Soil_Mositure.zip",
-  "label_path": null,
+  "label_path": "C:\\Users\\prath\\OneDrive\\Desktop\\Replicate\\labels\\vector\\wayanad_2024_atlas.gpkg",
   "channel_names": [
     "sentinel2_b01",
     "sentinel2_b02",
@@ -57,6 +57,6 @@
   ],
   "tile_size": 64,
   "stride": 64,
-  "saved_tiles": 378,
+  "saved_tiles": 8,
   "output_format": "npy"
 }

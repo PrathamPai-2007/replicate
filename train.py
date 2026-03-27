@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 from pathlib import Path
 
 import torch
@@ -9,7 +10,7 @@ from torch.optim import AdamW
 from torch.utils.data import DataLoader
 
 from config import DataConfig, ModelConfig, TrainConfig
-from dataset import LandslideTileDataset
+from dataset import LandslideTileDataset, infer_in_channels_from_root
 from losses import build_loss
 from model import LandslideSSMoEModel
 
@@ -25,7 +26,11 @@ def parse_args() -> argparse.Namespace:
     val_source.add_argument("--val-manifest")
     val_source.add_argument("--val-root")
     parser.add_argument("--task-type", choices=["segmentation", "classification"], default="segmentation")
-    parser.add_argument("--in-channels", type=int, default=10)
+    parser.add_argument(
+        "--in-channels",
+        type=int,
+        help="Input channel count. If omitted with --train-root, it is inferred from metadata or a sample tile.",
+    )
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--epochs", type=int, default=10)
@@ -77,10 +82,44 @@ def build_dataloaders(data_config: DataConfig) -> tuple[DataLoader, DataLoader |
     return train_loader, val_loader
 
 
+def resolve_in_channels(args: argparse.Namespace) -> int:
+    if args.in_channels is not None:
+        return args.in_channels
+
+    if args.train_root:
+        inferred = infer_in_channels_from_root(args.train_root)
+        print(f"inferred_in_channels={inferred} source={args.train_root}")
+        return inferred
+
+    raise ValueError("--in-channels is required when training from manifests.")
+
+
 def move_batch_to_device(batch: dict[str, object], device: str) -> tuple[Tensor, Tensor]:
     image = batch["image"].to(device)  # type: ignore[assignment]
     target = batch["target"].to(device)  # type: ignore[assignment]
     return image, target
+
+
+def validate_dataset_channels(
+    train_loader: DataLoader,
+    val_loader: DataLoader | None,
+    expected_in_channels: int,
+) -> None:
+    train_channels = int(train_loader.dataset[0]["image"].shape[0])  # type: ignore[index]
+    if train_channels != expected_in_channels:
+        raise ValueError(
+            f"Train data has {train_channels} channels, but --in-channels is {expected_in_channels}."
+        )
+
+    if val_loader is None:
+        return
+
+    val_channels = int(val_loader.dataset[0]["image"].shape[0])  # type: ignore[index]
+    if val_channels != expected_in_channels:
+        raise ValueError(
+            f"Validation data has {val_channels} channels, but --in-channels is {expected_in_channels}. "
+            "Rebuild train/val tiles with the same modalites in both splits."
+        )
 
 
 def compute_segmentation_iou(logits: Tensor, targets: Tensor, eps: float = 1e-6) -> float:
@@ -162,6 +201,7 @@ def evaluate(
 
 def main() -> None:
     args = parse_args()
+    resolved_in_channels = resolve_in_channels(args)
 
     data_config = DataConfig(
         train_manifest=args.train_manifest,
@@ -169,13 +209,13 @@ def main() -> None:
         val_manifest=args.val_manifest,
         val_root=args.val_root,
         task_type=args.task_type,
-        in_channels=args.in_channels,
+        in_channels=resolved_in_channels,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         pin_memory=args.device.startswith("cuda"),
     )
     model_config = ModelConfig(
-        in_channels=args.in_channels,
+        in_channels=resolved_in_channels,
         task_type=args.task_type,
         dim=args.dim,
         patch_size=args.patch_size,
@@ -195,6 +235,11 @@ def main() -> None:
     )
 
     train_loader, val_loader = build_dataloaders(data_config)
+    validate_dataset_channels(
+        train_loader=train_loader,
+        val_loader=val_loader,
+        expected_in_channels=model_config.in_channels,
+    )
 
     model = LandslideSSMoEModel(
         in_channels=model_config.in_channels,
@@ -257,6 +302,10 @@ def main() -> None:
                     "val_metric": val_metric,
                     "task_type": data_config.task_type,
                     "in_channels": data_config.in_channels,
+                    "model_config": asdict(model_config),
+                    "data_config": asdict(data_config),
+                    "train_config": asdict(train_config),
+                    "metric_name": metric_name,
                 },
                 output_path,
             )

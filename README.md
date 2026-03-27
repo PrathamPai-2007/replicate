@@ -2,44 +2,115 @@
 
 This repository adapts the EEGMoE paper,
 `EEGMoE: A Domain-Decoupled Mixture-of-Experts Model for Self-Supervised EEG Representation Learning`,
-to landslide susceptibility and detection.
+to landslide mapping from multimodal geospatial data.
 
-The project goal is to use aligned multimodal raster tiles such as Sentinel-1, Sentinel-2,
-rainfall, soil moisture, and Landslide Atlas labels to learn domain-shared and domain-specific
-representations for landslide prediction.
+The current repo is a working competition baseline for:
+
+- atlas-derived weak-label segmentation
+- multimodal raster preprocessing
+- supervised training with an SSMoE-style backbone
+- tile-wise inference and visualization review
+
+The main workflow is:
+
+1. keep raw GIS assets under `datasets/`
+2. keep label sources under `labels/`
+3. convert raw scenes into processed tiles with `prepare_tiles.py`
+4. inspect processed data with `analyze_dataset.py`
+5. train with `train.py`
+6. review predictions with `predict.py`
+7. reset processed data safely with `clear_processed_data.py`
+
+## Competition Context
+
+The competition asks for the EEGMoE architecture to be adapted to landslide prediction, using the Landslide Atlas as ground truth.
+
+In practice, that means:
+
+- the atlas PDF is the reference source
+- training still needs machine-usable labels
+- labels must become raster masks or vector polygons
+- the current project uses manually created atlas-derived polygon layers as supervision
+
+Related notes are in [ATLAS_LABEL_PLAN.md](./ATLAS_LABEL_PLAN.md).
 
 ## Current Status
 
-- `satellite_ssmoe.py` contains the paper-aligned specific/shared MoE routing block adapted to image tokens.
-- `dataset.py` loads preprocessed multimodal tiles either from a JSONL manifest or directly from a simple folder layout.
-- `model.py` wraps the SSMoE block in a landslide segmentation or tile-classification model.
-- `losses.py` contains binary losses for segmentation and classification.
-- `train.py` provides a first supervised training loop.
-- `prepare_manifest.py` can generate a manifest automatically from folders.
-- `prepare_tiles.py` converts raw scene folders into processed tensor tiles for training.
-- `requirements.txt` lists the dependencies judges can install directly.
+What is already working:
 
-This is the first working scaffold. The paper-style masked self-supervised pretraining stage is
-still a next step.
+- multimodal preprocessing from Sentinel-1, Sentinel-2, DEM, rainfall, soil moisture, and vector/raster labels
+- support for multiple label files merged with `union` or `intersection`
+- segmentation training with class-imbalance handling
+- dataset QC summaries
+- checkpoint-based prediction review with probability maps and visualization PNGs
+- safe cleanup of processed datasets between experiments
 
-## Suggested Data Shape
+What is not yet implemented:
 
-For now, the code assumes that raw geospatial sources have already been aligned and exported into
-tile tensors.
+- paper-style self-supervised pretraining
+- full-scene stitched geospatial export
+- broader event-wise evaluation across many independent landslide events
 
-- Image tensor shape: `[channels, height, width]`
-- Segmentation mask shape: `[1, height, width]` or `[height, width]`
-- Classification label shape: scalar `0` or `1`
+## Repository Overview
 
-You can choose any channel layout as long as it matches `--in-channels`.
-Examples:
+- [config.py](./config.py): dataclass config objects
+- [dataset.py](./dataset.py): processed tile loading, manifest support, folder discovery
+- [satellite_ssmoe.py](./satellite_ssmoe.py): patch embedding plus specific/shared MoE routing
+- [model.py](./model.py): segmentation/classification model wrapper
+- [losses.py](./losses.py): BCE and Dice-based losses
+- [prepare_tiles.py](./prepare_tiles.py): raw GIS to processed tiles
+- [prepare_manifest.py](./prepare_manifest.py): JSONL manifest generation
+- [analyze_dataset.py](./analyze_dataset.py): class balance and schema inspection
+- [train.py](./train.py): supervised training and checkpoint saving
+- [predict.py](./predict.py): tile inference, probability maps, binary masks, review PNGs
+- [clear_processed_data.py](./clear_processed_data.py): safe cleanup for new preprocessing attempts
+- [ATLAS_LABEL_PLAN.md](./ATLAS_LABEL_PLAN.md): atlas labeling strategy notes
 
-- `10` channels for a Sentinel-2-only experiment
-- `14` channels for `10` optical + `2` SAR + `1` rainfall + `1` soil moisture
+## Model Architecture
 
-## Raw Vs Processed Data
+The model follows this flow:
 
-Keep your project organized like this:
+1. load a multimodal tile tensor with shape `[channels, height, width]`
+2. convert the tile into patch tokens
+3. route each token through:
+   - a `SpecificMoE` branch with top-k routing
+   - a `SharedMoE` branch with soft routing across all shared experts
+4. combine expert outputs back into a feature map
+5. apply a task head for:
+   - segmentation logits, or
+   - tile-level classification logits
+
+Core implementation:
+
+- [satellite_ssmoe.py](./satellite_ssmoe.py)
+- [model.py](./model.py)
+
+## Supported Tasks
+
+- `segmentation`
+  - input: multimodal tile tensor
+  - target: binary mask
+  - output: per-pixel logits
+- `classification`
+  - input: multimodal tile tensor
+  - target: scalar `0` or `1`
+  - output: one logit per tile
+
+The current competition workflow is centered on `segmentation`.
+
+## Environment Setup
+
+Install dependencies with:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+The pinned dependencies include PyTorch, NumPy, Matplotlib, rasterio, xarray, netCDF4, geopandas, shapely, Fiona, and pyproj.
+
+## Data Layout
+
+Recommended project structure:
 
 ```text
 datasets/
@@ -53,8 +124,11 @@ datasets/
     DEM/
     Sentinel-1/
     Sentinel-2/
+labels/
+  vector/
+  raster/
+pdfs/
 references/
-  *.pdf
 data/
   train/
     images/
@@ -64,82 +138,138 @@ data/
     images/
     targets/
     metadata/
+data_dense/
+  train/
+  val/
+checkpoints/
+predictions/
+reports/
 ```
 
-- `datasets/` stores untouched raw sources.
-- `references/` stores papers and map PDFs.
-- `data/` stores processed training-ready tensors.
+Folder meaning:
 
-## Manifest Format
+- `datasets/`: untouched raw GIS data
+- `labels/`: vector or raster supervision layers
+- `pdfs/`: atlas and reference PDFs
+- `data/`: processed baseline tiles
+- `data_dense/`: denser tiling experiments
+- `checkpoints/`: trained models
+- `predictions/`: inference outputs and review images
+- `reports/`: QC summaries
 
-Each line in the manifest is a JSON object. Example segmentation record:
+## Training Data Format
 
-```json
-{"id":"wayanad_tile_0001","image":"data/tiles/wayanad_tile_0001_image.npy","target":"data/tiles/wayanad_tile_0001_mask.npy","event_id":"wayanad_2024"}
-```
+Training code does not consume raw GIS files directly. It expects processed tensors:
 
-Example classification record:
+- image tensor: `[channels, height, width]`
+- segmentation mask: `[1, height, width]` or `[height, width]`
+- classification label: scalar float
 
-```json
-{"id":"puthumala_tile_0007","image":"data/tiles/puthumala_tile_0007_image.npy","label":1.0,"event_id":"puthumala_2019"}
-```
+Supported formats:
 
-Supported tensor formats:
-
-- `.pt` or `.pth`
 - `.npy`
 - `.npz`
+- `.pt`
+- `.pth`
 
-## Easier Folder Layout
+## Folder Dataset Layout
 
-If you do not want to hand-write manifests, use this layout:
+If training from folder roots, the expected structure is:
 
 ```text
 data/
   train/
     images/
       wayanad_2024/
-        tile_0001_image.npy
-        tile_0002_image.npy
+        2024-12-11_704_1216_image.npy
     targets/
       wayanad_2024/
-        tile_0001_mask.npy
-        tile_0002_mask.npy
+        2024-12-11_704_1216_mask.npy
+    metadata/
+      wayanad_2024.json
   val/
     images/
-      puthumala_2019/
-        tile_0001_image.npy
+      wayanad_2024_val/
+        2024-12-16_704_1216_image.npy
     targets/
-      puthumala_2019/
-        tile_0001_mask.npy
+      wayanad_2024_val/
+        2024-12-16_704_1216_mask.npy
+    metadata/
+      wayanad_2024_val.json
 ```
 
-The loader matches files by name after removing common suffixes such as `_image`, `_img`, `_mask`, and `_target`.
-Nested folders are allowed. Their relative path becomes the `event_id`, so `images/wayanad_2024/...` maps to `event_id = "wayanad_2024"`.
-You can use either `targets/` or `masks/` for segmentation labels.
+Matching is name-based after removing common suffixes such as:
 
-## Raw Preprocessing
+- `_image`
+- `_img`
+- `_mask`
+- `_target`
+- `_label`
 
-`prepare_tiles.py` is the first-pass raw geospatial converter. It reads:
+For segmentation, either `targets/` or `masks/` is accepted.
 
-- Sentinel-2 bands from `Sentinel-2/`
-- Sentinel-1 raster from `Sentinel-1/`
-- DEM raster from `DEM/`
-- rainfall from a NetCDF file
-- soil moisture from a `.tif` or `.zip`
-- labels from a raster or vector file you provide
+## Manifest Format
 
-It outputs `.npy` or `.pt` tiles directly into the folder layout that `train.py` already understands. The default is `.npy`.
+You can also train from JSONL manifests.
 
-Install dependencies first:
+Segmentation example:
+
+```json
+{"id":"wayanad_tile_0001","image":"data/train/images/wayanad_2024/tile_0001_image.npy","target":"data/train/targets/wayanad_2024/tile_0001_mask.npy","event_id":"wayanad_2024"}
+```
+
+Classification example:
+
+```json
+{"id":"puthumala_tile_0007","image":"data/train/images/puthumala_2019/tile_0007_image.npy","label":1.0,"event_id":"puthumala_2019"}
+```
+
+Generate manifests with:
 
 ```powershell
-python -m pip install -r requirements.txt
+python prepare_manifest.py --data-root data/train --output data/train.jsonl --task-type segmentation
+python prepare_manifest.py --data-root data/val --output data/val.jsonl --task-type segmentation
 ```
 
-This is the simplest judge-friendly setup: one requirements file and regular `python` commands.
+## Labels And Atlas Ground Truth
 
-Example command:
+The atlas PDF is not directly trainable. Training needs one of:
+
+- `.gpkg`
+- `.geojson`
+- `.shp`
+- raster label files such as `.tif`
+
+Current label strategy:
+
+- use atlas pages as reference
+- digitize landslide polygons manually when needed
+- store vector labels under `labels/vector/`
+- let `prepare_tiles.py` rasterize them onto the model grid
+
+Multiple label files are supported and can be merged during preprocessing.
+
+## Preprocessing With `prepare_tiles.py`
+
+`prepare_tiles.py`:
+
+- discovers Sentinel-2 bands
+- loads Sentinel-1, DEM, rainfall, and soil moisture
+- picks a common grid
+- reprojects and resamples modalities
+- rasterizes labels when needed
+- writes processed tiles and metadata
+
+### Inputs Supported
+
+- Sentinel-2 `.tif`
+- Sentinel-1 `.tif`
+- DEM `.tif`
+- rainfall NetCDF
+- soil moisture `.tif` or zipped `.tif`
+- vector or raster labels
+
+### Basic Example
 
 ```powershell
 python prepare_tiles.py `
@@ -147,55 +277,289 @@ python prepare_tiles.py `
   --output-root data `
   --split train `
   --event-id wayanad_2024 `
-  --scene-date 2024-07-31 `
-  --label-path path/to/landslide_atlas.tif `
-  --rainfall-path datasets/2024-12-11/Rainfall Data/kerala_rainfall_data.nc `
-  --soil-moisture-path datasets/2024-12-11/Soil_moisture/Soil_Mositure.zip `
+  --scene-date 2024-12-11 `
+  --label-path labels/vector/wayanad_2024_atlas.gpkg `
+  --rainfall-path "datasets/2024-12-11/Rainfall Data/kerala_rainfall_data.nc" `
+  --soil-moisture-path "datasets/2024-12-11/Soil_moisture/Soil_Mositure.zip" `
   --tile-size 64 `
   --stride 64 `
+  --skip-empty-targets `
   --output-format npy
 ```
 
-Important:
+### Multiple Label Files
 
-- You still need a real landslide label file for training.
-- The current repo does not yet contain a ready-to-use atlas mask.
-- The preprocessing step needs the geospatial packages listed in `requirements.txt`.
-
-## Training
-
-Install the dependencies first, then run:
+Repeat `--label-path` to combine multiple layers:
 
 ```powershell
-python train.py --train-manifest data/train.jsonl --val-manifest data/val.jsonl --task-type segmentation --in-channels 10
+python prepare_tiles.py `
+  --scene-root datasets/2024-12-11 `
+  --output-root data_dense `
+  --split train `
+  --event-id wayanad_2024 `
+  --scene-date 2024-12-11 `
+  --label-path labels/vector/wayanad_2024_atlas.gpkg `
+  --label-path labels/vector/wayanad_2024_atlas_v1.gpkg `
+  --label-merge-mode union `
+  --rainfall-path "datasets/2024-12-11/Rainfall Data/kerala_rainfall_data.nc" `
+  --soil-moisture-path "datasets/2024-12-11/Soil_moisture/Soil_Mositure.zip" `
+  --tile-size 64 `
+  --stride 32 `
+  --skip-empty-targets `
+  --output-format npy
 ```
 
-Or train directly from folders:
+Merge modes:
+
+- `union`: keep any positive pixel from any label source
+- `intersection`: keep only overlapping positives
+
+### Dense Tiling Example
+
+For stronger segmentation coverage:
 
 ```powershell
-python train.py --train-root data/train --val-root data/val --task-type segmentation --in-channels 14
+python prepare_tiles.py `
+  --scene-root datasets/2024-12-11 `
+  --output-root data_dense `
+  --split train `
+  --event-id wayanad_2024 `
+  --scene-date 2024-12-11 `
+  --label-path labels/vector/wayanad_2024_atlas.gpkg `
+  --rainfall-path "datasets/2024-12-11/Rainfall Data/kerala_rainfall_data.nc" `
+  --soil-moisture-path "datasets/2024-12-11/Soil_moisture/Soil_Mositure.zip" `
+  --tile-size 64 `
+  --stride 32 `
+  --skip-empty-targets `
+  --output-format npy
 ```
 
-If you want manifests for inspection or reuse:
+### Important Preprocessing Notes
+
+- supervised segmentation requires a real label source
+- train and val should use the same modality schema
+- event-wise splits are better than random nearby-tile splits
+- `--skip-empty-targets` is very useful for extremely sparse labels
+
+## Dataset QC With `analyze_dataset.py`
+
+Before training, inspect processed data:
 
 ```powershell
-python prepare_manifest.py --data-root data/train --output data/train.jsonl --task-type segmentation
-python prepare_manifest.py --data-root data/val --output data/val.jsonl --task-type segmentation
+python analyze_dataset.py --data-root data/train --task-type segmentation
+python analyze_dataset.py --data-root data/val --task-type segmentation
 ```
 
-Useful flags:
+This reports:
+
+- sample count
+- event count
+- image shape preview
+- channel count
+- per-channel min, max, mean, and std
+- positive tile fraction
+- positive pixel fraction
+- metadata-derived channel names
+
+Save summaries with:
+
+```powershell
+python analyze_dataset.py --data-root data_dense/train --task-type segmentation --output-json reports/data_dense_train_summary.json
+python analyze_dataset.py --data-root data_dense/val --task-type segmentation --output-json reports/data_dense_val_summary.json
+```
+
+## Training With `train.py`
+
+Train from folder roots:
+
+```powershell
+python train.py `
+  --train-root data/train `
+  --val-root data/val `
+  --task-type segmentation `
+  --in-channels 17 `
+  --output checkpoints/landslide_seg.pt
+```
+
+Train from manifests:
+
+```powershell
+python train.py `
+  --train-manifest data/train.jsonl `
+  --val-manifest data/val.jsonl `
+  --task-type segmentation `
+  --in-channels 17 `
+  --output checkpoints/landslide_seg.pt
+```
+
+Dense-tile training example:
+
+```powershell
+python train.py `
+  --train-root data_dense/train `
+  --val-root data_dense/val `
+  --task-type segmentation `
+  --in-channels 17 `
+  --batch-size 2 `
+  --epochs 20 `
+  --patch-size 8 `
+  --specific-experts 4 `
+  --shared-experts 2 `
+  --top-k 2 `
+  --positive-class-weight 8 `
+  --output checkpoints/landslide_seg_dense_w8.pt
+```
+
+### Training Notes
+
+- folder-based training can infer channel schema from processed data
+- validation checkpoints are saved when the metric improves
+- segmentation uses IoU for validation
+- classification uses accuracy
+- checkpoint files now store model/data/train config for reproducible inference
+
+### Helpful Training Flags
 
 - `--task-type segmentation`
 - `--task-type classification`
-- `--in-channels 10`
+- `--batch-size 2`
+- `--epochs 20`
+- `--learning-rate 1e-4`
+- `--weight-decay 1e-4`
+- `--positive-class-weight 8`
+- `--dim 128`
 - `--patch-size 8`
 - `--specific-experts 4`
 - `--shared-experts 2`
 - `--top-k 2`
 
-## What Comes Next
+## Prediction Review With `predict.py`
 
-1. Build the geospatial preprocessing pipeline to create aligned training tiles.
-2. Decide the final input channel layout for Sentinel-1, Sentinel-2, rainfall, and soil moisture.
-3. Add the masked reconstruction pretraining stage from the EEGMoE paper.
-4. Add event-wise evaluation for Wayanad 2024 and Puthumala 2019.
+After training, run:
+
+```powershell
+python predict.py `
+  --data-root data_dense/val `
+  --checkpoint checkpoints/landslide_seg_dense_w8.pt `
+  --output-root predictions/dense_val_review `
+  --threshold 0.5 `
+  --max-visualizations 8
+```
+
+Outputs:
+
+- probability maps under `predictions/.../probabilities/`
+- binary masks under `predictions/.../binaries/`
+- qualitative PNGs under `predictions/.../visualizations/`
+- one summary JSON per run
+
+The PNG review panels show:
+
+- RGB tile preview
+- target mask
+- probability map
+- binary prediction
+- specific-expert map
+
+The summary JSON includes:
+
+- `sample_count`
+- `threshold`
+- `mean_iou` for segmentation
+- checkpoint path
+
+## Cleanup With `clear_processed_data.py`
+
+Preview what would be deleted:
+
+```powershell
+python clear_processed_data.py --root data --dry-run
+```
+
+Delete one event from one split:
+
+```powershell
+python clear_processed_data.py `
+  --root data `
+  --split train `
+  --event-id wayanad_2024 `
+  --include-cache `
+  --remove-empty-parents
+```
+
+Delete all processed train/val data in `data_dense`:
+
+```powershell
+python clear_processed_data.py `
+  --root data_dense `
+  --split train `
+  --split val `
+  --include-cache
+```
+
+This is the safest way to reset processed datasets between experiments.
+
+## Interpreting Results
+
+Use the outputs in two layers:
+
+- `summary.json` tells you the overall metric
+- `visualizations/` tells you why the model is doing well or badly
+
+When reading prediction results:
+
+- increasing `mean_iou` means better overlap on average
+- probability maps show where the model is confident
+- binary predictions depend on the chosen threshold
+- visual overlays reveal false positives, misses, and shape quality
+
+## Current Best Local Baseline
+
+At the time of writing, the strongest local run in this workspace uses:
+
+- dense tiles
+- multiple merged label layers
+- `positive-class-weight 8`
+
+Example assets:
+
+- [landslide_seg_dense_w8.pt](./checkpoints/landslide_seg_dense_w8.pt)
+- [summary.json](./predictions/dense_val_review/summary.json)
+
+These are workspace artifacts, not guaranteed reference benchmarks for every future run.
+
+## Known Limitations
+
+This is still a baseline repo. It does not yet include:
+
+- self-supervised pretraining from the original EEGMoE paper
+- full-scene stitched geospatial export
+- advanced augmentation policies
+- experiment tracking
+- distributed training
+- uncertainty estimation
+- deployment packaging
+
+## Suggested Next Steps
+
+1. improve and expand vector labels
+2. regenerate dense train/val splits
+3. run QC with `analyze_dataset.py`
+4. train with class-imbalance weighting
+5. review predictions with `predict.py`
+6. tune thresholds
+7. add paper-faithful self-supervised pretraining
+8. add full-scene export for final competition deliverables
+
+## Quick Start
+
+For a fast end-to-end smoke test using the demo data:
+
+```powershell
+python train.py --train-root demo_data/train --val-root demo_data/val --task-type segmentation --in-channels 14 --output demo_checkpoints/demo_seg.pt
+python predict.py --data-root demo_data/val --checkpoint demo_checkpoints/demo_seg.pt --output-root predictions/demo_review
+```
+
+## License
+
+This project is released under the MIT License. See [LICENSE](./LICENSE).
